@@ -1,4 +1,9 @@
 .venv/
 .vscode
+site/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.benchmarks/
 Thumbs.db
 desktop.ini
