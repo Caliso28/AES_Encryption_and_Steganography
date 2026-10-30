@@ -1,0 +1,86 @@
+site_name: AES Encryption and Steganography
+site_description: API and implementation documentation for password-based authenticated encryption.
+site_url: ""
+
+theme:
+  name: material
+
+  font:
+    text: Open Sans
+    code: Source Code Pro
+
+  icon:
+    logo: octicons/shield-lock-16
+
+  palette: 
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: teal
+      accent: green
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: amber
+      accent: orange
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  
+  features:
+    - navigation.sections
+    - navigation.top
+    - navigation.indexes
+    - navigation.instant
+    - navigation.instant.prefetch
+    - navigation.instant.progress
+    - navigation.path
+    - navigation.footer
+    - content.code.copy
+
+nav:
+  - Home: index.md
+  - User guide:
+      - Encryption workflows: workflows.md
+      - Encrypted stream format: format.md
+      - Benchmarks: benchmarks.md
+  - API reference: api.md
+
+docs_dir: docs
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - toc:
+      permalink: true
+  - material.extensions.preview:
+      configurations:
+        - targets:
+            include:
+              - "**"
+
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          paths:
+            - src
+          options:
+            docstring_style: google
+            filters:
+              - "!^__"
+            inherited_members: false
+            members: true
+            show_if_no_docstring: true
+            show_root_full_path: false
+            show_root_heading: true
+            show_source: false
+
+copyright: Copyright &copy; 2026 Antonin Fauvet
