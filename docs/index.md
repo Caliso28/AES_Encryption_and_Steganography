@@ -5,6 +5,17 @@ byte strings, binary streams, and files. It uses Argon2id to derive keys and
 AES-GCM to encrypt and authenticate data. The file and stream interface
 processes input in chunks instead of loading the entire input into memory.
 
+<p>
+  <a href="documentation.pdf">Download the complete documentation as a PDF</a>
+  or <a href="offline-docs.zip">download the offline site as a ZIP</a>.
+  The ZIP keeps the generated HTML, CSS, and JavaScript together; extract it
+  and open <code>index.html</code> to browse the documentation.
+</p>
+
+If your browser blocks search while opening the file directly, start a local
+server from the extracted directory with `python -m http.server 8000`, then
+visit `http://localhost:8000`.
+
 !!! warning "Security scope"
     This repository implements encryption primitives and file handling. It does
     not implement steganography, password storage, or a key-management system.

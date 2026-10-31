@@ -1,6 +1,6 @@
 site_name: AES Encryption and Steganography
 site_description: API and implementation documentation for password-based authenticated encryption.
-site_url: ""
+site_url: "https://caliso28.github.io/Chiffrement_AES_Et_Steganographie/"
 
 theme:
   name: material
@@ -32,9 +32,6 @@ theme:
     - navigation.sections
     - navigation.top
     - navigation.indexes
-    - navigation.instant
-    - navigation.instant.prefetch
-    - navigation.instant.progress
     - navigation.path
     - navigation.footer
     - content.code.copy
@@ -49,14 +46,13 @@ nav:
 
 docs_dir: docs
 
+hooks:
+  - scripts/package_docs.py
+
 markdown_extensions:
   - admonition
   - pymdownx.details
   - pymdownx.superfences:
-      custom_fences:
-        - name: mermaid
-          class: mermaid
-          format: !!python/name:pymdownx.superfences.fence_code_format
   - toc:
       permalink: true
   - material.extensions.preview:
@@ -82,5 +78,26 @@ plugins:
             show_root_full_path: false
             show_root_heading: true
             show_source: false
+  - exporter:
+      formats:
+        pdf:
+          enabled: !ENV [MKDOCS_EXPORTER_PDF_ENABLED, true]
+          concurrency: 4
+          aggregator:
+            enabled: true
+            output: documentation.pdf
+      buttons:
+        - title: View as PDF
+          icon: material-file-move-outline
+          enabled: true
+          attributes:
+            target: _blank
+            href: index.pdf
+        - title: Download as PDF
+          icon: material-file-download-outline
+          enabled: true
+          attributes:
+            href: index.pdf
+            download: index.pdf
 
 copyright: Copyright &copy; 2026 Antonin Fauvet

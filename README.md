@@ -131,9 +131,24 @@ pytest -o addopts= -m benchmark tests/benchmarks
 Build or preview the documentation locally:
 
 ```console
+playwright install chromium
 mkdocs build --strict
 mkdocs serve
 ```
+
+The build produces per-page PDF download buttons and a combined
+`site/documentation.pdf`. A MkDocs post-build hook creates
+`site/offline-docs.zip` automatically for both `mkdocs build` and `mkdocs
+serve`; it contains the generated HTML, CSS, JavaScript, and PDF files.
+
+## Documentation website
+
+The documentation is published to
+[GitHub Pages](https://caliso28.github.io/Chiffrement_AES_Et_Steganographie/)
+whenever changes are pushed to `main`. To enable it in the repository, open
+**Settings → Pages** and set the build and deployment source to **GitHub
+Actions**. The workflow builds the MkDocs site, packages the offline ZIP, and
+deploys both to Pages.
 
 The project documentation covers [encryption workflows](docs/workflows.md),
 the [encrypted stream format](docs/format.md), [benchmarks](docs/benchmarks.md),
