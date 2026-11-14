@@ -4,8 +4,9 @@
 
 Use `EncryptionOrchestrator` when the full plaintext is already a `bytes`
 object. Its result is a dictionary of Base64 strings that can be serialized by
-an application. It generates a random salt and nonce and derives an AES key
-with the configured `KeyDerivator`.
+an application, with a format version, AES-GCM identifier, Argon2id parameters,
+and password encoding/normalization identifiers. It generates a random salt
+and nonce and derives an AES key with the recorded Argon2id parameters.
 
 ```python
 from crypto.aes_cipher import AESCipher
@@ -19,6 +20,23 @@ plaintext = crypto.decrypt("passphrase", record)
 
 This representation is not the on-disk stream format: use the streaming APIs
 for large inputs and files.
+
+New in-memory records normalize passwords to Unicode NFC before UTF-8 encoding.
+The metadata is authenticated as AES-GCM associated data. Decryption accepts
+the versioned mapping format only.
+
+`KeyDerivator()` uses the production security profile by default. If a
+test needs faster derivation, pass `profile=KDFProfile.TEST` explicitly; do
+not use that profile for production data. Decryption normally enforces the
+production minimums; to decrypt test files made with weaker parameters, use
+the test profile explicitly. For stream tests, set `Crypto.KDF_PROFILE` to
+`KDFProfile.TEST` as well.
+
+Production derivations are capped at 256 MiB and 5 Argon2id iterations.
+Derivations are serialized within each process, and a call that cannot get a
+slot within one second fails with `KDFBusyError`. The iteration cap limits
+computational work, but it is not a hard wall-clock timeout because the native
+Argon2id operation cannot safely be interrupted in-process.
 
 ## Streaming data
 
@@ -49,7 +67,14 @@ joining all chunks in memory.
   provided, falling back to the source directory when that setting is `None`;
 - choose a numbered output filename rather than overwrite an existing file;
 - stage results in a temporary file in the destination directory;
-- publish the completed output only after encryption/decryption finishes.
+- synchronize the completed temporary file before publication;
+- publish with atomic no-replace semantics, so concurrent processes use
+  different numbered names rather than overwrite one another.
+
+Publication uses a hard link within the destination filesystem. That
+filesystem must support hard links; if it does not, the operation fails rather
+than falling back to an overwrite-prone rename. Synchronizing the file contents
+does not guarantee that the directory entry survives a sudden power loss.
 
 Set the project-wide default by changing the existing mutable settings object
 in `config.py`, for example `files.dest_path = Path("output")`. An explicit
@@ -83,5 +108,6 @@ Catch the package's `CryptoError` base class when an application wants to handle
 expected crypto failures uniformly. More specific subclasses distinguish
 invalid input (`ValidationError`), malformed headers (`HeaderError`), failed
 authentication (`IntegrityError`), unsupported format versions
-(`UnsupportedVersionError`), and incomplete streams (`TruncatedStreamError`).
-File and stream I/O failures use `CryptoFileError`.
+(`UnsupportedVersionError`), incomplete streams (`TruncatedStreamError`), and
+resource contention (`KDFBusyError`). File and stream I/O failures use
+`CryptoFileError`.

@@ -53,10 +53,34 @@ def test_invalid_key_length_raises(cipher, invalid_key):
         cipher.encrypt(invalid_key, NONCE, b"secret")
 
 
+@pytest.mark.parametrize("invalid_key", [None, "0123456789abcdef", bytearray(KEY)])
+def test_encrypt_rejects_non_bytes_key(cipher, invalid_key):
+    with pytest.raises(ValidationError, match="AES key must be bytes."):
+        cipher.encrypt(invalid_key, NONCE, b"secret")
+
+
+@pytest.mark.parametrize("invalid_nonce", [None, "012345678901", bytearray(NONCE)])
+def test_encrypt_rejects_non_bytes_nonce(cipher, invalid_nonce):
+    with pytest.raises(ValidationError, match="Nonce must be bytes."):
+        cipher.encrypt(KEY, invalid_nonce, b"secret")
+
+
+@pytest.mark.parametrize("invalid_data", [None, "secret", bytearray(b"secret")])
+def test_encrypt_rejects_non_bytes_data(cipher, invalid_data):
+    with pytest.raises(ValidationError, match="Data must be bytes."):
+        cipher.encrypt(KEY, NONCE, invalid_data)
+
+
+@pytest.mark.parametrize("invalid_associated_data", ["metadata", bytearray(b"metadata")])
+def test_encrypt_rejects_non_bytes_associated_data(cipher, invalid_associated_data):
+    with pytest.raises(ValidationError, match="Associated data must be bytes or None."):
+        cipher.encrypt(KEY, NONCE, b"secret", associated_data=invalid_associated_data)
+
+
 def test_wrong_nonce_fails(cipher):
 	encrypted = cipher.encrypt(KEY, NONCE, b"secret")
 	equivalent_but_different_nonce = b"111111111111"
-	with pytest.raises(IntegrityError, match="Déchiffrement impossible"):
+	with pytest.raises(IntegrityError, match="Decryption impossible"):
 		cipher.decrypt(KEY, equivalent_but_different_nonce, encrypted)
 
 
@@ -66,7 +90,7 @@ def test_wrong_nonce_fails(cipher):
     b"0123456789abcdef"
 ])
 def test_invalid_nonce_length_raises(cipher, invalid_nonce):
-    error_message = "Longueur du nonce non optimale."
+    error_message = "Nonce length is not optimal."
     with pytest.raises(ValidationError, match=error_message):
         cipher.encrypt(KEY, invalid_nonce, b"secret")
 
@@ -80,7 +104,7 @@ def test_nonce_reuse_is_security_risk(cipher):
     assert cipher.decrypt(KEY, NONCE, second) == data
 
 
-def test_reused_nonce_is_rejected():
+def test_orchestrator_generates_distinct_nonces_by_default():
     orchestrator = EncryptionOrchestrator(KeyDerivator(), AESCipher())
 
     password = "motdepasse"
@@ -103,7 +127,7 @@ def test_modified_nonce_fails(cipher):
 	encrypted = cipher.encrypt(KEY, NONCE, b"secret")
 	nonce = bytearray(NONCE)
 	nonce[0] ^= 1
-	with pytest.raises(IntegrityError, match="Déchiffrement impossible"):
+	with pytest.raises(IntegrityError, match="Decryption impossible"):
 		cipher.decrypt(KEY, bytes(nonce), encrypted)
 
 
@@ -123,10 +147,37 @@ def test_nonce_reuse_with_decrypt(cipher):
 
 def test_decrypt_invalid_nonce_length_raises(cipher):
 	encrypted = cipher.encrypt(KEY, NONCE, b"secret")
-	error_message = "Longueur du nonce non optimale."
+	error_message = "Nonce length is not optimal."
 	for invalid_nonce in [b"", b"short", b"0123456789abcdef"]:
 		with pytest.raises(ValidationError, match=error_message):
 			cipher.decrypt(KEY, invalid_nonce, encrypted)
+
+
+@pytest.mark.parametrize("invalid_key", [None, "0123456789abcdef", bytearray(KEY)])
+def test_decrypt_rejects_non_bytes_key(cipher, invalid_key):
+	encrypted = cipher.encrypt(KEY, NONCE, b"secret")
+	with pytest.raises(ValidationError, match="AES key must be bytes."):
+		cipher.decrypt(invalid_key, NONCE, encrypted)
+
+
+@pytest.mark.parametrize("invalid_nonce", [None, "012345678901", bytearray(NONCE)])
+def test_decrypt_rejects_non_bytes_nonce(cipher, invalid_nonce):
+	encrypted = cipher.encrypt(KEY, NONCE, b"secret")
+	with pytest.raises(ValidationError, match="Nonce must be bytes."):
+		cipher.decrypt(KEY, invalid_nonce, encrypted)
+
+
+@pytest.mark.parametrize("invalid_ciphertext", [None, "ciphertext", bytearray(b"ciphertext")])
+def test_decrypt_rejects_non_bytes_ciphertext(cipher, invalid_ciphertext):
+	with pytest.raises(ValidationError, match="Ciphertext must be bytes."):
+		cipher.decrypt(KEY, NONCE, invalid_ciphertext)
+
+
+@pytest.mark.parametrize("invalid_associated_data", ["metadata", bytearray(b"metadata")])
+def test_decrypt_rejects_non_bytes_associated_data(cipher, invalid_associated_data):
+	encrypted = cipher.encrypt(KEY, NONCE, b"secret")
+	with pytest.raises(ValidationError, match="Associated data must be bytes or None."):
+		cipher.decrypt(KEY, NONCE, encrypted, associated_data=invalid_associated_data)
 
 
 @pytest.mark.parametrize("key_size", [16, 24, 32])
@@ -171,7 +222,7 @@ def test_corrupted_ciphertext_fails_at_any_position(cipher):
 	for i in range(positions_to_test):
 		corrupted = bytearray(encrypted)
 		corrupted[i] ^= 1  # Flip un bit
-		with pytest.raises(IntegrityError, match="Déchiffrement impossible"):
+		with pytest.raises(IntegrityError, match="Decryption impossible"):
 			cipher.decrypt(KEY, NONCE, bytes(corrupted))
 
 
@@ -189,7 +240,7 @@ def test_data_exactly_16_bytes(cipher):
 
 
 def test_ciphertext_too_short_fails(cipher):
-	with pytest.raises(IntegrityError, match="Déchiffrement impossible"):
+	with pytest.raises(IntegrityError, match="Decryption impossible"):
 		cipher.decrypt(KEY, NONCE, b"tiny")
 
 
@@ -206,4 +257,3 @@ def test_decrypt_big_data_with_timeout(cipher):
 	encrypted = cipher.encrypt(KEY, NONCE, data)
 	decrypted = cipher.decrypt(KEY, NONCE, encrypted)
 	assert decrypted == data
-

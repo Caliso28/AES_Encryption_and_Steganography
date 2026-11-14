@@ -34,6 +34,13 @@ of the documented internal behavior.
       members:
         - KeyDerivator
 
+## Password preparation
+
+::: crypto.password_utils
+    options:
+      members:
+        - prepare_password
+
 ## AES-GCM
 
 ::: crypto.aes_cipher

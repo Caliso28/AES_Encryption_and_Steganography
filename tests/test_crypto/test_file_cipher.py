@@ -1,9 +1,12 @@
 from concurrent.futures import ThreadPoolExecutor
 from io import BytesIO
+import multiprocessing
+from pathlib import Path
 
 import pytest
 
-from config import Crypto
+from config import Crypto, KDFProfile
+from crypto import file_cipher
 from crypto.exceptions import CryptoFileError, IntegrityError, ValidationError
 from crypto.file_cipher import decrypt_file as decrypt_file_to_path, encrypt_file
 from crypto.stream_crypto import decrypt_stream, encrypt_stream
@@ -15,7 +18,25 @@ CONFIG = Crypto(
     MEMORY_COST=8 * 1024,
     TIME_COST=1,
     PARALLELISM=1,
+    KDF_PROFILE=KDFProfile.TEST,
 )
+
+
+def _encrypt_file_with_barrier(source_path, destination, barrier, results):
+    original_encrypt_stream = file_cipher.encrypt_stream
+    synchronized = False
+
+    def synchronized_encrypt_stream(*args, **kwargs):
+        nonlocal synchronized
+        yield from original_encrypt_stream(*args, **kwargs)
+        if not synchronized:
+            synchronized = True
+            barrier.wait(timeout=20)
+
+    file_cipher.encrypt_stream = synchronized_encrypt_stream
+    results.put(
+        str(file_cipher.encrypt_file(source_path, PASSWORD, destination, CONFIG))
+    )
 
 
 def decrypt_file(path, password=PASSWORD, config=CONFIG):
@@ -245,6 +266,34 @@ def test_encrypt_file_accepts_password_as_bytes(tmp_path):
     assert decrypt_file(result) == b"contenu"
 
 
+def test_encrypt_file_preserves_file_created_while_output_is_being_written(
+    tmp_path, monkeypatch
+):
+    source = tmp_path / "document.txt"
+    source.write_bytes(b"source content")
+    first_candidate = tmp_path / "document_encrypted.txt"
+    first_candidate.write_bytes(b"created concurrently")
+    original_publish = file_cipher._publish_without_overwrite
+    created_during_publish = False
+
+    def create_collision_then_publish(temporary_path, final_path):
+        nonlocal created_during_publish
+        if final_path == first_candidate and not created_during_publish:
+            created_during_publish = True
+            first_candidate.write_bytes(b"created concurrently")
+        return original_publish(temporary_path, final_path)
+
+    monkeypatch.setattr(
+        file_cipher, "_publish_without_overwrite", create_collision_then_publish
+    )
+
+    result = encrypt_file(source, PASSWORD, tmp_path, CONFIG)
+
+    assert result == tmp_path / "document_2_encrypted.txt"
+    assert first_candidate.read_bytes() == b"created concurrently"
+    assert decrypt_file(result) == b"source content"
+
+
 def test_encrypt_file_serializes_same_output_name_concurrently(tmp_path):
     source_dirs = [tmp_path / "first", tmp_path / "second"]
     source_data = [b"first source", b"second source"]
@@ -265,6 +314,48 @@ def test_encrypt_file_serializes_same_output_name_concurrently(tmp_path):
         "shared_2_encrypted.txt",
     }
     assert {decrypt_file(result) for result in results} == set(source_data)
+
+
+def test_encrypt_file_does_not_overwrite_between_processes(tmp_path):
+    context = multiprocessing.get_context("spawn")
+    source_dirs = [tmp_path / "first", tmp_path / "second"]
+    source_data = [b"first process", b"second process"]
+    for source_dir, data in zip(source_dirs, source_data):
+        source_dir.mkdir()
+        (source_dir / "shared.txt").write_bytes(data)
+
+    barrier = context.Barrier(2)
+    results = context.Queue()
+    processes = [
+        context.Process(
+            target=_encrypt_file_with_barrier,
+            args=(source_dir / "shared.txt", tmp_path, barrier, results),
+        )
+        for source_dir in source_dirs
+    ]
+
+    try:
+        for process in processes:
+            process.start()
+        for process in processes:
+            process.join(timeout=30)
+
+        assert all(not process.is_alive() for process in processes)
+        assert [process.exitcode for process in processes] == [0, 0]
+        result_paths = {
+            Path(results.get(timeout=1)) for _ in processes
+        }
+        assert {path.name for path in result_paths} == {
+            "shared_encrypted.txt",
+            "shared_2_encrypted.txt",
+        }
+        assert {decrypt_file(path) for path in result_paths} == set(source_data)
+    finally:
+        for process in processes:
+            if process.is_alive():
+                process.terminate()
+            process.join()
+        results.close()
 
 
 def test_encrypt_file_removes_temporary_file_on_encryption_error(tmp_path, monkeypatch):

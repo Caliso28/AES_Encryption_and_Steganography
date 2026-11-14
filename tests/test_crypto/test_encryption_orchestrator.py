@@ -1,11 +1,17 @@
 import base64
 import secrets
+from unittest.mock import Mock
 
 import pytest
 
 from crypto.aes_cipher import AESCipher
 from crypto.encryption_orchestrator import EncryptionOrchestrator
-from crypto.exceptions import IntegrityError, ValidationError
+from crypto.exceptions import (
+    IntegrityError,
+    UnsupportedVersionError,
+    ValidationError,
+)
+from config import KDFProfile
 from crypto.key_derivator import KeyDerivator
 
 
@@ -15,7 +21,12 @@ PASSWORD = "mot de passe de test"
 @pytest.fixture
 def orchestrator():
     return EncryptionOrchestrator(
-        KeyDerivator(memory_cost=8 * 1024, time_cost=1, parallelism=1),
+        KeyDerivator(
+            memory_cost=8 * 1024,
+            time_cost=1,
+            parallelism=1,
+            profile=KDFProfile.TEST,
+        ),
         AESCipher(),
     )
 
@@ -82,7 +93,26 @@ def test_large_data_round_trips(orchestrator):
 def test_encrypt_returns_expected_fields(orchestrator):
     encrypted = orchestrator.encrypt(PASSWORD, b"data")
 
-    assert set(encrypted) == {"salt", "nonce", "ciphertext"}
+    assert set(encrypted) == {
+        "version",
+        "algorithm",
+        "kdf",
+        "password_encoding",
+        "password_normalization",
+        "salt",
+        "nonce",
+        "ciphertext",
+    }
+    assert encrypted["version"] == 1
+    assert encrypted["algorithm"] == "AES-GCM"
+    assert encrypted["kdf"] == {
+        "algorithm": "Argon2id",
+        "length": 32,
+        "memory_cost": 8 * 1024,
+        "time_cost": 1,
+        "parallelism": 1,
+    }
+    assert encrypted["password_normalization"] == "NFC"
 
 
 @pytest.mark.parametrize("field", ["salt", "nonce", "ciphertext"])
@@ -138,6 +168,11 @@ def test_invalid_password_type_raises_validation_error(orchestrator, password):
         orchestrator.encrypt(password, b"data")
 
 
+def test_empty_password_is_rejected(orchestrator):
+    with pytest.raises(ValidationError, match="password must not be empty"):
+        orchestrator.encrypt("", b"data")
+
+
 def test_invalid_data_type_raises_validation_error(orchestrator):
     with pytest.raises(ValidationError, match="byte.*type"):
         orchestrator.encrypt(PASSWORD, "not bytes")
@@ -148,20 +183,100 @@ def test_unencodable_password_raises_validation_error(orchestrator):
         orchestrator.encrypt("\ud800", b"data")
 
 
-def test_invalid_salt_length_raises_validation_error(orchestrator):
-    encrypted = orchestrator.encrypt(PASSWORD, b"data")
-    encrypted["salt"] = base64.b64encode(b"short").decode("ascii")
+def test_equivalent_nfc_password_representations_decrypt(orchestrator):
+    encrypted = orchestrator.encrypt("caf\u00e9", b"secret")
 
-    with pytest.raises(ValidationError):
+    assert orchestrator.decrypt("cafe\u0301", encrypted) == b"secret"
+
+
+@pytest.mark.parametrize(
+    ("encryption_password", "decryption_password"),
+    [
+        ("caf\u00e9", "caf\u00e9"),
+        ("cafe\u0301", "cafe\u0301"),
+        ("caf\u00e9", "cafe\u0301"),
+        ("cafe\u0301", "caf\u00e9"),
+    ],
+)
+def test_versioned_records_normalize_unicode_passwords(
+    orchestrator, encryption_password, decryption_password
+):
+    encrypted = orchestrator.encrypt(encryption_password, b"Unicode password")
+
+    assert orchestrator.decrypt(decryption_password, encrypted) == b"Unicode password"
+
+
+def test_unversioned_data_is_rejected(orchestrator):
+    encrypted = {
+        "salt": base64.b64encode(b"s" * 16).decode("ascii"),
+        "nonce": base64.b64encode(b"n" * 12).decode("ascii"),
+        "ciphertext": base64.b64encode(b"ciphertext").decode("ascii"),
+    }
+
+    with pytest.raises(ValidationError, match="fields.*missing"):
         orchestrator.decrypt(PASSWORD, encrypted)
 
 
-def test_invalid_nonce_length_raises_validation_error(orchestrator):
+def test_unknown_format_version_raises(orchestrator):
     encrypted = orchestrator.encrypt(PASSWORD, b"data")
-    encrypted["nonce"] = base64.b64encode(b"short").decode("ascii")
+    encrypted["version"] = 2
 
-    with pytest.raises(ValidationError):
+    with pytest.raises(UnsupportedVersionError, match="version: 2"):
         orchestrator.decrypt(PASSWORD, encrypted)
+
+
+def test_modified_algorithm_metadata_is_rejected(orchestrator):
+    encrypted = orchestrator.encrypt(PASSWORD, b"data")
+    encrypted["algorithm"] = "AES-CBC"
+
+    with pytest.raises(ValidationError, match="algorithm"):
+        orchestrator.decrypt(PASSWORD, encrypted)
+
+
+def test_recorded_kdf_parameters_are_used_for_decryption(orchestrator):
+    encrypted = orchestrator.encrypt(PASSWORD, b"data")
+    replacement = EncryptionOrchestrator(
+        KeyDerivator(
+            memory_cost=16 * 1024,
+            time_cost=1,
+            parallelism=1,
+            profile=KDFProfile.TEST,
+        ),
+        AESCipher(),
+    )
+
+    assert replacement.decrypt(PASSWORD, encrypted) == b"data"
+
+
+def test_weak_kdf_metadata_requires_test_profile(orchestrator):
+    encrypted = orchestrator.encrypt(PASSWORD, b"data")
+    production_orchestrator = EncryptionOrchestrator(KeyDerivator(), AESCipher())
+
+    with pytest.raises(ValidationError, match="below the production minimums"):
+        production_orchestrator.decrypt(PASSWORD, encrypted)
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("salt", b"s" * 12, "Invalid salt length."),
+        ("nonce", b"n" * 11, "Invalid nonce length."),
+        ("ciphertext", b"c" * 15, "Ciphertext is too short."),
+    ],
+)
+def test_invalid_component_lengths_are_rejected_before_key_derivation(
+    orchestrator, monkeypatch, field, value, message
+):
+    encrypted = orchestrator.encrypt(PASSWORD, b"data")
+    encrypted[field] = base64.b64encode(value).decode("ascii")
+    derive = Mock()
+    monkeypatch.setattr(orchestrator.key_derivator, "derive", derive)
+
+    with pytest.raises(ValidationError) as error:
+        orchestrator.decrypt(PASSWORD, encrypted)
+
+    assert str(error.value) == message
+    derive.assert_not_called()
 
 
 def test_unexpected_key_derivation_error_is_wrapped(orchestrator, monkeypatch):
@@ -192,22 +307,9 @@ def test_unexpected_aes_decryption_error_is_wrapped(orchestrator, monkeypatch):
     assert "private dependency detail" not in str(error.value)
 
 
-def test_reused_nonce_is_rejected_before_second_encryption(orchestrator, monkeypatch):
-    fixed_values = {
-        16: b"s" * 16,
-        12: b"n" * 12,
-    }
-    monkeypatch.setattr(
-        "crypto.encryption_orchestrator.secrets.token_bytes",
-        lambda size: fixed_values[size],
-    )
-    orchestrator.encrypt(PASSWORD, b"first")
-
-    with pytest.raises(ValidationError, match="Nonce already used"):
-        orchestrator.encrypt(PASSWORD, b"second")
-
-
-def test_same_nonce_is_allowed_for_different_keys(orchestrator, monkeypatch):
+def test_same_nonce_is_allowed_for_different_keys_without_retaining_keys(
+    orchestrator, monkeypatch
+):
     fixed_values = {
         16: iter([b"s" * 16, b"t" * 16]),
         12: iter([b"n" * 12, b"n" * 12]),
@@ -223,6 +325,7 @@ def test_same_nonce_is_allowed_for_different_keys(orchestrator, monkeypatch):
 
     assert first["salt"] != second["salt"]
     assert first["nonce"] == second["nonce"]
+    assert not hasattr(orchestrator, "used_nonces_by_key")
     assert orchestrator.decrypt(PASSWORD, first) == b"first"
     assert orchestrator.decrypt(PASSWORD, second) == b"second"
 

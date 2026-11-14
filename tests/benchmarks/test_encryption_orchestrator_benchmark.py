@@ -6,6 +6,7 @@ import pytest
 
 from crypto.aes_cipher import AESCipher
 from crypto.encryption_orchestrator import EncryptionOrchestrator
+from config import KDFProfile
 from crypto.key_derivator import KeyDerivator
 
 
@@ -15,7 +16,12 @@ PASSWORD = "mot de passe de benchmark"
 @pytest.fixture
 def orchestrator():
     return EncryptionOrchestrator(
-        KeyDerivator(memory_cost=8 * 1024, time_cost=1, parallelism=1),
+        KeyDerivator(
+            memory_cost=8 * 1024,
+            time_cost=1,
+            parallelism=1,
+            profile=KDFProfile.TEST,
+        ),
         AESCipher(),
     )
 

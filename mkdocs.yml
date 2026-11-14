@@ -1,6 +1,6 @@
 site_name: AES Encryption and Steganography
 site_description: API and implementation documentation for password-based authenticated encryption.
-site_url: "https://caliso28.github.io/Chiffrement_AES_Et_Steganographie/"
+site_url: "https://caliso28.github.io/AES_Encryption_and_Steganography/"
 
 theme:
   name: material

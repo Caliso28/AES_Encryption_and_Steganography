@@ -20,7 +20,9 @@ visit `http://localhost:8000`.
     This repository implements encryption primitives and file handling. It does
     not implement steganography, password storage, or a key-management system.
     Keep passwords secret, use a fresh salt for every encryption, and never
-    reuse an AES-GCM nonce with the same key.
+    reuse an AES-GCM nonce with the same key. The in-memory orchestrator keeps
+    no persistent key or nonce history; it relies on fresh cryptographically
+    secure random salts and nonces for each encryption.
 
 ## Quick start
 

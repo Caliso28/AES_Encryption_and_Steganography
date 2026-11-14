@@ -2,23 +2,11 @@
 
 import os
 import tempfile
-import threading
 from pathlib import Path
 import config as project_config
 from config import Crypto, Files
 from .exceptions import CryptoFileError, ValidationError
 from .stream_crypto import encrypt_stream, decrypt_stream
-
-
-_path_locks: dict[str, threading.Lock] = {}
-_path_locks_guard = threading.Lock()
-
-
-def _get_path_lock(path: Path) -> threading.Lock:
-    """Return a process-local lock keyed by a normalized absolute path."""
-    lock_key = os.path.normcase(str(path.resolve()))
-    with _path_locks_guard:
-        return _path_locks.setdefault(lock_key, threading.Lock())
 
 
 def _output_path(src_path: Path, dest_dir: Path, index: int) -> Path:
@@ -39,6 +27,11 @@ def _decrypted_output_path(src_path: Path, dest_dir: Path, index: int) -> Path:
     return dest_dir / f"{numbered_stem}{src_path.suffix}"
 
 
+def _publish_without_overwrite(temporary_path: Path, final_path: Path) -> None:
+    """Atomically publish a same-filesystem file without replacing a path."""
+    os.link(temporary_path, final_path)
+
+
 def encrypt_file(
     src_path: str | Path,
     password: str | bytes,
@@ -48,8 +41,8 @@ def encrypt_file(
     """Encrypt a file as a versioned authenticated stream.
 
     Output is written to a temporary file in the destination directory and
-    renamed only after encryption succeeds. Existing outputs are preserved;
-    numbered names are selected when necessary.
+    atomically published without replacement after encryption succeeds.
+    Existing outputs are preserved; numbered names are selected when needed.
 
     Args:
         src_path: Existing source file.
@@ -106,36 +99,41 @@ def encrypt_file(
     index = 1
     while True:
         final_path = _output_path(src_file, dest_dir, index)
-        path_lock = _get_path_lock(final_path)
-        with path_lock:
-            if final_path.exists():
+        if final_path.exists():
+            index += 1
+            continue
+
+        temporary_path: Path | None = None
+        try:
+            # Keeping the temporary file beside the destination allows an
+            # atomic hard-link publication on the same filesystem.
+            with tempfile.NamedTemporaryFile(
+                mode="wb",
+                dir=dest_dir,
+                prefix=f".{final_path.name}.",
+                suffix=".tmp",
+                delete=False,
+            ) as temporary_file:
+                temporary_path = Path(temporary_file.name)
+                with src_file.open("rb") as source_stream:
+                    for encrypted_chunk in encrypt_stream(
+                        source_stream, password, effective_config
+                    ):
+                        temporary_file.write(encrypted_chunk)
+                temporary_file.flush()
+                os.fsync(temporary_file.fileno())
+
+            try:
+                _publish_without_overwrite(temporary_path, final_path)
+            except FileExistsError:
                 index += 1
                 continue
-
-            temporary_path: Path | None = None
-            try:
-                # Keeping the temporary file beside the destination allows a
-                # same-filesystem rename and avoids publishing partial output.
-                with tempfile.NamedTemporaryFile(
-                    mode="wb",
-                    dir=dest_dir,
-                    prefix=f".{final_path.name}.",
-                    suffix=".tmp",
-                    delete=False,
-                ) as temporary_file:
-                    temporary_path = Path(temporary_file.name)
-                    with src_file.open("rb") as source_stream:
-                        for encrypted_chunk in encrypt_stream(
-                            source_stream, password, effective_config
-                        ):
-                            temporary_file.write(encrypted_chunk)
-
-                temporary_path.replace(final_path)
-                temporary_path = None
-                return final_path
-            finally:
-                if temporary_path is not None:
-                    temporary_path.unlink(missing_ok=True)
+            temporary_path.unlink()
+            temporary_path = None
+            return final_path
+        finally:
+            if temporary_path is not None:
+                temporary_path.unlink(missing_ok=True)
 
 
 def decrypt_file(
@@ -205,33 +203,38 @@ def decrypt_file(
     index = 1
     while True:
         final_path = _decrypted_output_path(src_file, dest_dir, index)
-        path_lock = _get_path_lock(final_path)
-        with path_lock:
-            if final_path.exists():
+        if final_path.exists():
+            index += 1
+            continue
+
+        temporary_path: Path | None = None
+        try:
+            # Do not expose plaintext until every record has authenticated;
+            # a failed decryption must leave no partial destination behind.
+            with tempfile.NamedTemporaryFile(
+                mode="wb",
+                dir=dest_dir,
+                prefix=f".{final_path.name}.",
+                suffix=".tmp",
+                delete=False,
+            ) as temporary_file:
+                temporary_path = Path(temporary_file.name)
+                with src_file.open("rb") as source_stream:
+                    for decrypted_chunk in decrypt_stream(
+                        source_stream, password, effective_config
+                    ):
+                        temporary_file.write(decrypted_chunk)
+                temporary_file.flush()
+                os.fsync(temporary_file.fileno())
+
+            try:
+                _publish_without_overwrite(temporary_path, final_path)
+            except FileExistsError:
                 index += 1
                 continue
-
-            temporary_path: Path | None = None
-            try:
-                # Do not expose plaintext until every record has authenticated;
-                # a failed decryption must leave no partial destination behind.
-                with tempfile.NamedTemporaryFile(
-                    mode="wb",
-                    dir=dest_dir,
-                    prefix=f".{final_path.name}.",
-                    suffix=".tmp",
-                    delete=False,
-                ) as temporary_file:
-                    temporary_path = Path(temporary_file.name)
-                    with src_file.open("rb") as source_stream:
-                        for decrypted_chunk in decrypt_stream(
-                            source_stream, password, effective_config
-                        ):
-                            temporary_file.write(decrypted_chunk)
-
-                temporary_path.replace(final_path)
-                temporary_path = None
-                return final_path
-            finally:
-                if temporary_path is not None:
-                    temporary_path.unlink(missing_ok=True)
+            temporary_path.unlink()
+            temporary_path = None
+            return final_path
+        finally:
+            if temporary_path is not None:
+                temporary_path.unlink(missing_ok=True)

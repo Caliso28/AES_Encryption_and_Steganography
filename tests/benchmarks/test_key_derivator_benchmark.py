@@ -2,17 +2,23 @@
 
 import pytest
 
+from config import KDFProfile
 from crypto.key_derivator import KeyDerivator
 
 
-PASSWORD = "mot de passe de benchmark"
+PASSWORD = b"mot de passe de benchmark"
 SALT = b"salt de benchmark"
 
 
 @pytest.mark.benchmark
 @pytest.mark.parametrize("memory_cost", [8 * 1024, 16 * 1024])
 def test_memory_cost_benchmark(benchmark, memory_cost):
-    derivator = KeyDerivator(memory_cost=memory_cost, time_cost=1, parallelism=1)
+    derivator = KeyDerivator(
+        memory_cost=memory_cost,
+        time_cost=1,
+        parallelism=1,
+        profile=KDFProfile.TEST,
+    )
 
     benchmark.pedantic(
         derivator.derive,
@@ -26,7 +32,12 @@ def test_memory_cost_benchmark(benchmark, memory_cost):
 @pytest.mark.benchmark
 @pytest.mark.parametrize("time_cost", [1, 2])
 def test_time_cost_benchmark(benchmark, time_cost):
-    derivator = KeyDerivator(memory_cost=8 * 1024, time_cost=time_cost, parallelism=1)
+    derivator = KeyDerivator(
+        memory_cost=8 * 1024,
+        time_cost=time_cost,
+        parallelism=1,
+        profile=KDFProfile.TEST,
+    )
 
     benchmark.pedantic(
         derivator.derive,
@@ -44,6 +55,7 @@ def test_parallelism_benchmark(benchmark, parallelism):
         memory_cost=16 * 1024,
         time_cost=1,
         parallelism=parallelism,
+        profile=KDFProfile.TEST,
     )
 
     benchmark.pedantic(
@@ -70,7 +82,12 @@ def test_default_parameters_benchmark(benchmark):
 
 @pytest.mark.benchmark
 def test_repeated_derivations_benchmark(benchmark):
-    derivator = KeyDerivator(memory_cost=8 * 1024, time_cost=1, parallelism=1)
+    derivator = KeyDerivator(
+        memory_cost=8 * 1024,
+        time_cost=1,
+        parallelism=1,
+        profile=KDFProfile.TEST,
+    )
 
     def derive_three_times():
         return [derivator.derive(PASSWORD, SALT) for _ in range(3)]

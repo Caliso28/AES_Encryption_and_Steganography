@@ -4,7 +4,7 @@ import io
 
 import pytest
 
-from config import Crypto
+from config import Crypto, KDFProfile
 from crypto.stream_crypto import decrypt_stream, encrypt_stream
 
 
@@ -18,6 +18,7 @@ def config():
         MEMORY_COST=8 * 1024,
         TIME_COST=1,
         PARALLELISM=1,
+        KDF_PROFILE=KDFProfile.TEST,
     )
 
 

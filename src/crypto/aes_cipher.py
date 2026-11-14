@@ -24,15 +24,25 @@ class AESCipher:
             Ciphertext followed by the 16-byte authentication tag.
 
         Raises:
-            ValidationError: If the key or nonce has an invalid length.
+            ValidationError: If an argument has an invalid type or the key or
+                nonce has an invalid length.
         """
+        if not isinstance(key, bytes):
+            raise ValidationError("AES key must be bytes.")
+        if not isinstance(nonce, bytes):
+            raise ValidationError("Nonce must be bytes.")
+        if not isinstance(data, bytes):
+            raise ValidationError("Data must be bytes.")
+        if associated_data is not None and not isinstance(associated_data, bytes):
+            raise ValidationError("Associated data must be bytes or None.")
+
         # GCM's 96-bit nonce is its standard efficient size and keeps nonce
         # construction consistent across the in-memory and stream APIs.
         if len(nonce) != 12:
             raise ValidationError("Nonce length is not optimal.")
         if len(key) not in (16, 24, 32):
-            raise ValidationError("Invalid AES key size.")
-        
+            raise ValidationError("Invalid AES key length.")
+
         aesgcm = AESGCM(key)
         return aesgcm.encrypt(nonce, data, associated_data=associated_data)
 
@@ -49,17 +59,27 @@ class AESCipher:
             The authenticated plaintext.
 
         Raises:
-            ValidationError: If the key or nonce has an invalid length.
+            ValidationError: If an argument has an invalid type or the key or
+                nonce has an invalid length.
             IntegrityError: If authentication fails, including for a wrong key,
                 nonce, associated-data value, or modified ciphertext.
         """
+        if not isinstance(key, bytes):
+            raise ValidationError("AES key must be bytes.")
+        if not isinstance(nonce, bytes):
+            raise ValidationError("Nonce must be bytes.")
+        if not isinstance(ciphertext, bytes):
+            raise ValidationError("Ciphertext must be bytes.")
+        if associated_data is not None and not isinstance(associated_data, bytes):
+            raise ValidationError("Associated data must be bytes or None.")
+
         if len(nonce) != 12:
             raise ValidationError("Nonce length is not optimal.")
         if len(key) not in (16, 24, 32):
-            raise ValidationError("Invalid AES key size")
-        
+            raise ValidationError("Invalid AES key length.")
+
         aesgcm = AESGCM(key)
         try:
             return aesgcm.decrypt(nonce, ciphertext, associated_data=associated_data)
         except InvalidTag:
-            raise IntegrityError("Decryption failed: key, nonce, or data corrupted.")
+            raise IntegrityError("Decryption impossible")

@@ -8,6 +8,10 @@ class ValidationError(CryptoError):
     """An argument or configuration value has an invalid type, size, or value."""
     pass
 
+class KDFBusyError(CryptoError):
+    """Key derivation could not start before the resource-admission timeout."""
+    pass
+
 class CryptoFileError(CryptoError):
     """Base class for I/O and encrypted-stream format errors."""
     pass

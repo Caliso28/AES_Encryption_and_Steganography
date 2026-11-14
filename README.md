@@ -81,9 +81,15 @@ encrypted = crypto.encrypt("a strong passphrase", b"small payload")
 plaintext = crypto.decrypt("a strong passphrase", encrypted)
 ```
 
-The encrypted result is a dictionary containing Base64-encoded `salt`,
-`nonce`, and `ciphertext` values. This in-memory representation is distinct
-from the versioned format used by the stream and file APIs.
+For in-memory format version 1 and binary stream/file format `CRP1`, string
+passwords are normalized to Unicode NFC and then encoded as UTF-8 before
+Argon2id. Thus canonically equivalent Unicode spellings produce the same key.
+The encrypted in-memory result records its normalization rule alongside the
+AES-GCM and Argon2id metadata and Base64-encoded `salt`, `nonce`, and
+`ciphertext` values.
+
+Stream and file APIs also accept `bytes` passwords as raw bytes; these are not
+Unicode-normalized.
 
 ### Process a binary stream
 
@@ -108,7 +114,9 @@ decryption iterator so that final authentication and truncation checks run.
 
 - Use a strong, unique passphrase and keep it secret. This package does not
   store or manage passwords or encryption keys.
-- A fresh random salt and nonce material are generated for each encryption.
+- Each encryption uses a fresh cryptographically secure 128-bit salt and
+  96-bit nonce. The in-memory orchestrator keeps no persistent key or nonce
+  history; uniqueness relies on this random generation.
 - The stream and file format authenticates each record. Do not treat a
   decryption as successful until the full stream has been consumed.
 - This library does not provide steganography, key management, or a command-line
@@ -144,11 +152,12 @@ serve`; it contains the generated HTML, CSS, JavaScript, and PDF files.
 ## Documentation website
 
 The documentation is published to
-[GitHub Pages](https://caliso28.github.io/Chiffrement_AES_Et_Steganographie/)
-whenever changes are pushed to `main`. To enable it in the repository, open
-**Settings → Pages** and set the build and deployment source to **GitHub
-Actions**. The workflow builds the MkDocs site, packages the offline ZIP, and
-deploys both to Pages.
+[GitHub Pages](https://caliso28.github.io/AES_Encryption_and_Steganography/)
+after the test suite passes on Python 3.10, 3.11, 3.12, 3.13, and 3.14 for
+changes pushed to `main`. To enable it in the repository, open **Settings →
+Pages** and set the build and deployment source to **GitHub Actions**. The
+workflow builds the MkDocs site, packages the offline ZIP, and deploys both to
+Pages.
 
 The project documentation covers [encryption workflows](docs/workflows.md),
 the [encrypted stream format](docs/format.md), [benchmarks](docs/benchmarks.md),
